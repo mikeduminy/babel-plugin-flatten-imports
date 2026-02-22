@@ -417,10 +417,23 @@ module.exports = declare(function flattenImportsPlugin({ types: t }) {
             );
             if (result && result.file !== resolvedSourcePath) {
               if (!groups.has(result.file)) groups.set(result.file, []);
-              groups.get(result.file).push({
-                kind: "default",
-                local: specifier.local.name,
-              });
+
+              // Check if the resolved export is actually a default or named export
+              // in the target file. If a named export was re-exported as default
+              // somewhere in the chain, result.exportedName will be the named export.
+              if (result.exportedName === "default") {
+                groups.get(result.file).push({
+                  kind: "default",
+                  local: specifier.local.name,
+                });
+              } else {
+                // Named export that was re-exported as default in the chain
+                groups.get(result.file).push({
+                  kind: "named",
+                  imported: result.exportedName,
+                  local: specifier.local.name,
+                });
+              }
             } else {
               unresolvedSpecifiers.push(specifier);
             }

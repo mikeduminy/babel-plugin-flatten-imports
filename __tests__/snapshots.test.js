@@ -39,6 +39,14 @@ import { bar } from "./fixtures/simple/bar";"
     );
   });
 
+  it("should match snapshot for chained re-exports with as default", () => {
+    const input = `import deepFoo from './fixtures/chained-as-default/level2';`;
+    const output = transform(input, testFile);
+    expect(output).toMatchInlineSnapshot(
+      `"import { deepFoo } from "./fixtures/chained-as-default/source";"`,
+    );
+  });
+
   it("should match snapshot for wildcard exports", () => {
     const input = `import { wildcardFoo } from './fixtures/wildcard/barrel';`;
     const output = transform(input, testFile);

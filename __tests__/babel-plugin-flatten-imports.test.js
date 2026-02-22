@@ -161,6 +161,12 @@ import { named } from "./fixtures/default/named";"
         `"import { TypedFoo } from "./fixtures/typescript/source";"`,
       );
     });
+
+    it("should handle exports that are re-exported as default", () => {
+      const input = `import defaultRenamed from './fixtures/default/renamed';`;
+      const output = transform(input, testFile);
+      expect(output).toMatchInlineSnapshot(`"import defaultRenamed from './fixtures/default/renamed';"`);
+    });
   });
 
   describe("grouping optimization", () => {
