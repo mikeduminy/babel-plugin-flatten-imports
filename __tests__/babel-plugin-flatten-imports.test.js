@@ -1,6 +1,8 @@
+const path = require("node:path");
+
 const { transformSync } = require("@babel/core");
-const plugin = require("../babel-plugin-flatten-imports");
-const path = require("path");
+
+const plugin = require("../index");
 
 /**
  * Helper to run the plugin on source code

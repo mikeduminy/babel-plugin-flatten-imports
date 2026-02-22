@@ -1,6 +1,8 @@
+const path = require("node:path");
+
 const { transformSync } = require("@babel/core");
-const plugin = require("../babel-plugin-flatten-imports");
-const path = require("path");
+
+const plugin = require("../index");
 
 /**
  * Snapshot tests for babel-plugin-flatten-imports
@@ -32,19 +34,25 @@ import { bar } from "./fixtures/simple/bar";"
   it("should match snapshot for chained re-exports", () => {
     const input = `import { deepFoo } from './fixtures/chained/level1';`;
     const output = transform(input, testFile);
-    expect(output).toMatchInlineSnapshot(`"import { deepFoo } from "./fixtures/chained/source";"`);
+    expect(output).toMatchInlineSnapshot(
+      `"import { deepFoo } from "./fixtures/chained/source";"`,
+    );
   });
 
   it("should match snapshot for wildcard exports", () => {
     const input = `import { wildcardFoo } from './fixtures/wildcard/barrel';`;
     const output = transform(input, testFile);
-    expect(output).toMatchInlineSnapshot(`"import { wildcardFoo } from "./fixtures/wildcard/foo";"`);
+    expect(output).toMatchInlineSnapshot(
+      `"import { wildcardFoo } from "./fixtures/wildcard/foo";"`,
+    );
   });
 
   it("should match snapshot for default export", () => {
     const input = `import defaultFoo from './fixtures/default/barrel';`;
     const output = transform(input, testFile);
-    expect(output).toMatchInlineSnapshot(`"import defaultFoo from "./fixtures/default/source";"`);
+    expect(output).toMatchInlineSnapshot(
+      `"import defaultFoo from "./fixtures/default/source";"`,
+    );
   });
 
   it("should match snapshot for mixed default and named", () => {
@@ -77,7 +85,9 @@ import { otherFoo } from "./fixtures/split/other";"
   it("should match snapshot for namespace import (unchanged)", () => {
     const input = `import * as all from './fixtures/simple/barrel';`;
     const output = transform(input, testFile);
-    expect(output).toMatchInlineSnapshot(`"import * as all from './fixtures/simple/barrel';"`);
+    expect(output).toMatchInlineSnapshot(
+      `"import * as all from './fixtures/simple/barrel';"`,
+    );
   });
 
   it("should match snapshot for component library", () => {

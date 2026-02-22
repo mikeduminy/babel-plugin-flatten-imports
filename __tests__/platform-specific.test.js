@@ -1,6 +1,8 @@
+const path = require("node:path");
+
 const { transformSync } = require("@babel/core");
-const plugin = require("../babel-plugin-flatten-imports");
-const path = require("path");
+
+const plugin = require("../index");
 
 /**
  * Tests for platform-specific file resolution
@@ -214,7 +216,9 @@ import { setItem } from "./fixtures/platform-specific/storage";"
     it("should match snapshot for android platform", () => {
       const input = `import { getPlatform } from './fixtures/platform-specific/barrel';`;
       const output = transform(input, testFile, { platforms: ["android"] });
-      expect(output).toMatchInlineSnapshot(`"import { getPlatform } from "./fixtures/platform-specific/utils";"`);
+      expect(output).toMatchInlineSnapshot(
+        `"import { getPlatform } from "./fixtures/platform-specific/utils";"`,
+      );
     });
 
     it("should match snapshot for multiple platforms", () => {
