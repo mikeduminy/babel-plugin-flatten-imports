@@ -39,7 +39,7 @@ Add to your `.babelrc` or `babel.config.js`:
 
 ```json
 {
-  "plugins": ["./babel-plugin-flatten-imports"]
+  "plugins": ["babel-plugin-flatten-imports"]
 }
 ```
 
@@ -51,7 +51,7 @@ For React Native or other platforms with platform-specific file extensions:
 {
   "plugins": [
     [
-      "./babel-plugin-flatten-imports",
+      "babel-plugin-flatten-imports",
       {
         "platforms": ["native", "android", "ios"]
       }
