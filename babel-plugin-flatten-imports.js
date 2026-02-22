@@ -93,7 +93,9 @@ function createResolver(options = {}) {
 //   kind: 'reexport'     — re-exported from another file (file + localName)
 //   kind: 'wildcard'     — re-exported via `export * from` (file, name unknown until lookup)
 
+/** @type {Map<string, Map<string, RawExport>>} */
 const rawExportCache = new Map(); // absolutePath -> Map<name, RawExport>
+/** @type {Map<string, { file: string, exportedName: string } | null>} */
 const resolvedCache = new Map(); // `${absolutePath}::${name}` -> { file, exportedName } | null
 
 // ---------------------------------------------------------------------------
@@ -232,6 +234,7 @@ function parseFileExports(absolutePath) {
  * @param {string} absoluteFilePath - The file where this symbol is referenced
  * @param {ResolverFactory} resolver - An oxc-resolver instance for resolving specifiers
  * @param {Set<string>} visited - Set of `${absoluteFilePath}::${name}` keys to detect cycles
+ * @returns {{ file: string, exportedName: string } | null} The resolved source file and exported name, or null if unresolvable
  */
 function resolveSymbol(name, absoluteFilePath, resolver, visited = new Set()) {
   const cacheKey = `${absoluteFilePath}::${name}`;
@@ -319,6 +322,7 @@ function resolveSymbol(name, absoluteFilePath, resolver, visited = new Set()) {
  * @param {string} fromFile - The file where the import will be emitted
  * @param {string} toAbsolutePath - The absolute path of the file we're importing
  * @param {Array<string>} platforms - Optional array of platform suffixes to strip (e.g., ['native', 'android'])
+ * @returns {string} A relative path from `fromFile` to `toAbsolutePath`, without platform suffixes or extensions
  */
 function makeRelativeSpecifier(fromFile, toAbsolutePath, platforms = []) {
   const fromDir = path.dirname(fromFile);
@@ -366,7 +370,7 @@ module.exports = declare(function flattenImportsPlugin({ types: t }) {
   return {
     name: "flatten-imports",
 
-    pre(state) {
+    pre(_state) {
       // Create or reuse a resolver based on plugin options
       const opts = this.opts || {};
 
@@ -398,12 +402,13 @@ module.exports = declare(function flattenImportsPlugin({ types: t }) {
         // We group by target file so we can emit one import per file,
         // which is cleaner and avoids duplicate import declarations.
         //
-        /** @type {Map<string, Array<{ kind: string, imported?: string, local: string }>>} */
+        /** @type {Map<string, Array<{ kind: 'default' | 'named', imported?: string, local: string }>>} */
         const groups = new Map();
         const unresolvedSpecifiers = []; // things we couldn't follow
 
         for (const specifier of nodePath.node.specifiers) {
           if (t.isImportDefaultSpecifier(specifier)) {
+            // eg. default specifier: import foo from '...'
             // Treat default import as the name 'default' in our export map.
             const result = resolveSymbol(
               "default",
@@ -420,6 +425,7 @@ module.exports = declare(function flattenImportsPlugin({ types: t }) {
               unresolvedSpecifiers.push(specifier);
             }
           } else if (t.isImportSpecifier(specifier)) {
+            // eg. import specifier: import { foo } from '...'
             const importedName =
               specifier.imported.type === "Identifier"
                 ? specifier.imported.name
