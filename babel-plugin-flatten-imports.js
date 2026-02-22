@@ -28,6 +28,7 @@ const { ResolverFactory } = require("oxc-resolver");
 // We use Babel's own parser for intermediate files since we're already in
 // a Babel context. Could swap for oxc-parser bindings for extra speed.
 const parser = require("@babel/parser");
+const declare = require("@babel/helper-plugin-utils").declare;
 
 // ---------------------------------------------------------------------------
 // Resolver setup
@@ -39,7 +40,10 @@ const parser = require("@babel/parser");
  * @param {Array<string>} baseExtensions - Base extensions like ['.js', '.jsx', '.ts', '.tsx']
  * @returns {Array<string>} Combined extensions with platform variants first
  */
-function buildExtensions(platforms = [], baseExtensions = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"]) {
+function buildExtensions(
+  platforms = [],
+  baseExtensions = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"],
+) {
   if (!platforms || platforms.length === 0) {
     return baseExtensions;
   }
@@ -65,6 +69,8 @@ function buildExtensions(platforms = [], baseExtensions = [".js", ".jsx", ".ts",
 function createResolver(options = {}) {
   const extensions = buildExtensions(options.platforms, options.extensions);
 
+  // TODO: consider spreading options to allow custom resolver config
+  // (alias, tsconfig, etc.)
   return new ResolverFactory({
     conditionNames: options.conditionNames || ["import", "module", "default"],
     extensions,
@@ -95,8 +101,18 @@ const resolvedCache = new Map(); // `${absolutePath}::${name}` -> { file, export
 // ---------------------------------------------------------------------------
 
 /**
+ * @typedef {Object} RawExport
+ * @property {'declaration' | 'reexport' | 'wildcard'} kind - The kind of export
+ * @property {string} [fromSpecifier] - The specifier from which the symbol is re-exported (for 'reexport' and 'wildcard' kinds)
+ * @property {string} [localName] - The local name of the symbol in the source file
+ */
+
+/**
  * Parse a file and extract its raw export map.
  * Returns Map<exportedName, RawExport> or null if the file can't be parsed.
+ *
+ * @param {string} absolutePath - The absolute path of the file to parse
+ * @returns {Map<string, RawExport> | null} Map of exported names to their raw export info, or null if unparseable
  */
 function parseFileExports(absolutePath) {
   if (rawExportCache.has(absolutePath)) return rawExportCache.get(absolutePath);
@@ -122,6 +138,7 @@ function parseFileExports(absolutePath) {
     return null;
   }
 
+  /** @type {Map<string, RawExport>} */
   const exports = new Map(); // name -> RawExport
 
   for (const node of ast.program.body) {
@@ -210,6 +227,11 @@ function parseFileExports(absolutePath) {
  * Returns { file: absolutePath, exportedName: string } or null if unresolvable.
  *
  * `visitedKey` is used to detect cycles.
+ *
+ * @param {string} name - The exported name to resolve (e.g., 'foo' or 'default')
+ * @param {string} absoluteFilePath - The file where this symbol is referenced
+ * @param {ResolverFactory} resolver - An oxc-resolver instance for resolving specifiers
+ * @param {Set<string>} visited - Set of `${absoluteFilePath}::${name}` keys to detect cycles
  */
 function resolveSymbol(name, absoluteFilePath, resolver, visited = new Set()) {
   const cacheKey = `${absoluteFilePath}::${name}`;
@@ -247,7 +269,12 @@ function resolveSymbol(name, absoluteFilePath, resolver, visited = new Set()) {
         return null;
       }
 
-      const result = resolveSymbol(entry.localName, resolved.path, resolver, visited);
+      const result = resolveSymbol(
+        entry.localName,
+        resolved.path,
+        resolver,
+        visited,
+      );
       resolvedCache.set(cacheKey, result);
       return result;
     }
@@ -288,6 +315,10 @@ function resolveSymbol(name, absoluteFilePath, resolver, visited = new Set()) {
  *
  * Platform suffixes and file extensions are stripped from the output -
  * the bundler will handle both platform-specific resolution and extensions.
+ *
+ * @param {string} fromFile - The file where the import will be emitted
+ * @param {string} toAbsolutePath - The absolute path of the file we're importing
+ * @param {Array<string>} platforms - Optional array of platform suffixes to strip (e.g., ['native', 'android'])
  */
 function makeRelativeSpecifier(fromFile, toAbsolutePath, platforms = []) {
   const fromDir = path.dirname(fromFile);
@@ -303,7 +334,7 @@ function makeRelativeSpecifier(fromFile, toAbsolutePath, platforms = []) {
       // Match patterns like .native.js, .android.tsx, etc.
       const pattern = new RegExp(`\\.${platform}(\\.[^.]+)$`);
       if (pattern.test(rel)) {
-        rel = rel.replace(pattern, '$1');
+        rel = rel.replace(pattern, "$1");
         break;
       }
     }
@@ -311,7 +342,7 @@ function makeRelativeSpecifier(fromFile, toAbsolutePath, platforms = []) {
 
   // Strip file extension - bundlers handle extension resolution
   // Removes .js, .jsx, .ts, .tsx, .mjs, .cjs, etc.
-  rel = rel.replace(/\.[^./]+$/, '');
+  rel = rel.replace(/\.[^./]+$/, "");
 
   // Ensure it starts with ./ or ../
   if (!rel.startsWith(".")) rel = "./" + rel;
@@ -324,9 +355,11 @@ function makeRelativeSpecifier(fromFile, toAbsolutePath, platforms = []) {
 // ---------------------------------------------------------------------------
 
 // Cache resolvers by options to avoid recreating for the same config
+/** @type {WeakMap<Object, ResolverFactory>} */
 const resolverCache = new WeakMap();
 
-module.exports = function flattenImportsPlugin({ types: t }) {
+module.exports = declare(function flattenImportsPlugin({ types: t }) {
+  /** @type {ResolverFactory} */
   let resolver;
   let platforms;
 
@@ -365,14 +398,18 @@ module.exports = function flattenImportsPlugin({ types: t }) {
         // We group by target file so we can emit one import per file,
         // which is cleaner and avoids duplicate import declarations.
         //
-        // Map<targetAbsolutePath, Array<{ imported: string, local: string }>>
+        /** @type {Map<string, Array<{ kind: string, imported?: string, local: string }>>} */
         const groups = new Map();
         const unresolvedSpecifiers = []; // things we couldn't follow
 
         for (const specifier of nodePath.node.specifiers) {
           if (t.isImportDefaultSpecifier(specifier)) {
             // Treat default import as the name 'default' in our export map.
-            const result = resolveSymbol("default", resolvedSourcePath, resolver);
+            const result = resolveSymbol(
+              "default",
+              resolvedSourcePath,
+              resolver,
+            );
             if (result && result.file !== resolvedSourcePath) {
               if (!groups.has(result.file)) groups.set(result.file, []);
               groups.get(result.file).push({
@@ -388,7 +425,11 @@ module.exports = function flattenImportsPlugin({ types: t }) {
                 ? specifier.imported.name
                 : specifier.imported.value; // string literal case
 
-            const result = resolveSymbol(importedName, resolvedSourcePath, resolver);
+            const result = resolveSymbol(
+              importedName,
+              resolvedSourcePath,
+              resolver,
+            );
 
             if (result && result.file !== resolvedSourcePath) {
               // We found a deeper source — group it.
@@ -426,7 +467,11 @@ module.exports = function flattenImportsPlugin({ types: t }) {
 
         // Emit a new import for each resolved target file.
         for (const [targetFile, specs] of groups) {
-          const newSpecifier = makeRelativeSpecifier(sourceFile, targetFile, platforms);
+          const newSpecifier = makeRelativeSpecifier(
+            sourceFile,
+            targetFile,
+            platforms,
+          );
 
           const importSpecifiers = specs.map((s) => {
             if (s.kind === "default") {
@@ -458,4 +503,4 @@ module.exports = function flattenImportsPlugin({ types: t }) {
       },
     },
   };
-};
+});
