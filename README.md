@@ -94,6 +94,7 @@ const result = babel.transformSync(code, {
         extensions: [".js", ".jsx", ".ts", ".tsx"],
       },
     ],
+    "typescript",
   ],
   filename: "path/to/your/file.js",
 });

@@ -156,7 +156,7 @@ function parseFileExports(absolutePath) {
         exports.set(spec.exported.name, {
           kind: "reexport",
           fromSpecifier: node.source.value, // relative/package specifier
-          localName: spec.local.name,
+          localName: spec?.local?.name,
         });
       }
     }
@@ -358,6 +358,9 @@ function makeRelativeSpecifier(fromFile, toAbsolutePath, platforms = []) {
 // Babel plugin
 // ---------------------------------------------------------------------------
 
+let debug = false;
+const log = (...args) => debug && console.log("[flatten-imports]", ...args);
+
 // Cache resolvers by options to avoid recreating for the same config
 /** @type {WeakMap<Object, ResolverFactory>} */
 const resolverCache = new WeakMap();
@@ -365,7 +368,10 @@ const resolverCache = new WeakMap();
 module.exports = declare(function flattenImportsPlugin({ types: t }) {
   /** @type {ResolverFactory} */
   let resolver;
+  /** @type {Array<string>} */
   let platforms;
+  /** @type {Array<RegExp>} */
+  let ignoreListPatterns;
 
   return {
     name: "flatten-imports",
@@ -380,11 +386,29 @@ module.exports = declare(function flattenImportsPlugin({ types: t }) {
       }
       resolver = resolverCache.get(opts);
       platforms = opts.platforms || [];
+      ignoreListPatterns = opts.ignore || [];
+
+      debug = !!opts.debug;
+
+      log("Initialized flatten-imports plugin with options", opts);
     },
 
     visitor: {
       ImportDeclaration(nodePath, state) {
         const sourceFile = state.filename;
+
+        log(
+          "processing import in",
+          sourceFile,
+          "from",
+          nodePath.node.source.value,
+        );
+
+        if (ignoreListPatterns.some((pattern) => pattern.test(sourceFile))) {
+          log("skipping file due to ignore pattern:", sourceFile);
+          return;
+        }
+
         if (!sourceFile) return; // shouldn't happen, but guard anyway
 
         const originalSpecifier = nodePath.node.source.value;
@@ -407,6 +431,7 @@ module.exports = declare(function flattenImportsPlugin({ types: t }) {
         const unresolvedSpecifiers = []; // things we couldn't follow
 
         for (const specifier of nodePath.node.specifiers) {
+          log(specifier.type, "specifier:", specifier.local.name);
           if (t.isImportDefaultSpecifier(specifier)) {
             // eg. default specifier: import foo from '...'
             // Treat default import as the name 'default' in our export map.
@@ -416,6 +441,14 @@ module.exports = declare(function flattenImportsPlugin({ types: t }) {
               resolver,
             );
             if (result && result.file !== resolvedSourcePath) {
+              if (ignoreListPatterns.some((x) => x.test(result.file))) {
+                log(
+                  `skipping specifier ${specifier.local.name} due to ignore pattern:`,
+                  result.file,
+                );
+                unresolvedSpecifiers.push(specifier);
+                continue;
+              }
               if (!groups.has(result.file)) groups.set(result.file, []);
 
               // Check if the resolved export is actually a default or named export
@@ -451,6 +484,15 @@ module.exports = declare(function flattenImportsPlugin({ types: t }) {
             );
 
             if (result && result.file !== resolvedSourcePath) {
+              if (ignoreListPatterns.some((x) => x.test(result.file))) {
+                log(
+                  `skipping specifier ${specifier.local.name} due to ignore pattern:`,
+                  result.file,
+                );
+                unresolvedSpecifiers.push(specifier);
+                continue;
+              }
+
               // We found a deeper source — group it.
               if (!groups.has(result.file)) groups.set(result.file, []);
               groups.get(result.file).push({
@@ -516,6 +558,13 @@ module.exports = declare(function flattenImportsPlugin({ types: t }) {
             ),
           );
         }
+
+        log(
+          "replacing import from",
+          originalSpecifier,
+          "with",
+          replacements.map((r) => r.source.value).join(", "),
+        );
 
         // Replace the single original ImportDeclaration with our array.
         nodePath.replaceWithMultiple(replacements);

@@ -9,10 +9,10 @@ const plugin = require("../index");
  * These tests capture the exact output to detect any unintended changes
  */
 
-function transform(code, filename) {
+function transform(code, filename, ignore = null) {
   const result = transformSync(code, {
     filename,
-    plugins: [plugin],
+    plugins: [[plugin, { ignore }]],
     babelrc: false,
     configFile: false,
   });
@@ -70,6 +70,16 @@ import { bar } from "./fixtures/simple/bar";"
 "import defaultFoo from "./fixtures/default/source";
 import { named } from "./fixtures/default/named";"
 `);
+  });
+
+  it("should match snapshot for mixed default and named with ignore", () => {
+    const input = `import { chained, direct } from './fixtures/chained/mixed';`;
+    const output = transform(input, testFile, [
+      new RegExp("./fixtures/chained/source"),
+    ]);
+    expect(output).toMatchInlineSnapshot(
+      `"import { chained, direct } from './fixtures/chained/mixed';"`,
+    );
   });
 
   it("should match snapshot for aliased imports", () => {
