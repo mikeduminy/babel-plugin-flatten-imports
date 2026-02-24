@@ -31,56 +31,6 @@ const parser = require("@babel/parser");
 const declare = require("@babel/helper-plugin-utils").declare;
 
 // ---------------------------------------------------------------------------
-// Resolver setup
-// ---------------------------------------------------------------------------
-
-/**
- * Build extensions list with platform-specific suffixes
- * @param {Array<string>} platforms - Platform suffixes like ['native', 'android', 'ios']
- * @param {Array<string>} baseExtensions - Base extensions like ['.js', '.jsx', '.ts', '.tsx']
- * @returns {Array<string>} Combined extensions with platform variants first
- */
-function buildExtensions(
-  platforms = [],
-  baseExtensions = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"],
-) {
-  if (!platforms || platforms.length === 0) {
-    return baseExtensions;
-  }
-
-  const platformExtensions = [];
-
-  // For each base extension, create platform-specific variants
-  for (const ext of baseExtensions) {
-    for (const platform of platforms) {
-      platformExtensions.push(`.${platform}${ext}`);
-    }
-  }
-
-  // Platform-specific extensions should be tried first, then base extensions
-  return [...platformExtensions, ...baseExtensions];
-}
-
-/**
- * Create a resolver with the given options
- * @param {Object} options - Plugin options
- * @returns {ResolverFactory} Configured resolver
- */
-function createResolver(options = {}) {
-  const extensions = buildExtensions(options.platforms, options.extensions);
-
-  // TODO: consider spreading options to allow custom resolver config
-  // (alias, tsconfig, etc.)
-  return new ResolverFactory({
-    conditionNames: options.conditionNames || ["import", "module", "default"],
-    extensions,
-    // If you use tsconfig paths or webpack aliases, add them via options:
-    // alias: options.alias,
-    // tsconfig: options.tsconfig,
-  });
-}
-
-// ---------------------------------------------------------------------------
 // Export map cache
 // ---------------------------------------------------------------------------
 
@@ -379,10 +329,11 @@ module.exports = declare(function flattenImportsPlugin({ types: t }) {
     pre(_state) {
       // Create or reuse a resolver based on plugin options
       const opts = this.opts || {};
+      const resolverOpts = opts.resolve || {};
 
       // Try to get cached resolver, or create a new one
       if (!resolverCache.has(opts)) {
-        resolverCache.set(opts, createResolver(opts));
+        resolverCache.set(opts, new ResolverFactory(resolverOpts));
       }
       resolver = resolverCache.get(opts);
       platforms = opts.platforms || [];
